@@ -445,21 +445,51 @@ import xgboost as xgb
 for shift_index in [1]:
     window_size_xgb = 16 # 4 minutes 
     for kor in [False, True]:
-        if(kor):
-            labels, data, original_features = make_dataset(df_kor, shifts)   
-            X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.5, random_state=42, shuffle= True)
-        else:
-            labels, data, original_features = make_dataset(df, shifts)  
+        use_predefined_ids = False
+        dataframe = df_kor if kor else df
+        labels = dataframe[label_names[shift_index]]  
 
-            # split the data into training and test sets
-            X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.1, random_state=42, shuffle= True)
-            
-            # Assume you have X, y as your data and target
-            X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
-            
-            
-            class_ratio = float(np.sum(labels == 0)) / np.sum(labels == 1)
-            # Train XGBoost
+        if use_predefined_ids:
+            train_ids_df = pd.read_csv("train_ids.csv")
+            test_ids_df = pd.read_csv("test_ids.csv")
+
+            train_ids = train_ids_df['rand_id'].tolist()
+            test_ids = test_ids_df['rand_id'].tolist()
+
+            X_train_full = dataframe[dataframe['rand_id'].isin(train_ids)]
+            X_test       = dataframe[dataframe['rand_id'].isin(test_ids)]
+
+            y_train_full = labels[dataframe['rand_id'].isin(train_ids)]
+            y_test       = labels[dataframe['rand_id'].isin(test_ids)]
+        else:
+            unique_ids = dataframe['rand_id'].unique()
+            train_ids, test_ids = train_test_split(unique_ids, test_size=0.1, random_state=42)
+
+            X_train_full = dataframe[dataframe['rand_id'].isin(train_ids)]
+            X_test       = dataframe[dataframe['rand_id'].isin(test_ids)]
+
+            y_train_full = labels[dataframe['rand_id'].isin(train_ids)]
+            y_test       = labels[dataframe['rand_id'].isin(test_ids)]
+
+        unique_train_ids = X_train_full['rand_id'].unique()
+        train_ids_for_train, val_ids = train_test_split(unique_train_ids, test_size=0.2, random_state=42)
+
+        train_mask = X_train_full['rand_id'].isin(train_ids_for_train)
+        val_mask   = X_train_full['rand_id'].isin(val_ids)
+
+        X_train = X_train_full[train_mask]
+        X_val   = X_train_full[val_mask]
+        y_train = y_train_full[train_mask]
+        y_val   = y_train_full[val_mask]
+
+
+        class_ratio = float(np.sum(labels == 0)) / np.sum(labels == 1)
+        print("Class ratio (0/1):", class_ratio)
+
+        y_test, X_test, _       = make_dataset(X_test, shifts)
+        y_train, X_train, _      = make_dataset(X_train, shifts)
+        y_val , X_val, _        = make_dataset(X_val, shifts)
+
             
             model = xgb.XGBClassifier(objective ='binary:logistic', colsample_bytree = 0.3, learning_rate = 0.1,
                             max_depth = 64, alpha = 10, n_estimators = 400, scale_pos_weight=class_ratio)
